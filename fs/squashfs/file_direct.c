@@ -21,7 +21,13 @@
 #include "squashfs.h"
 #include "page_actor.h"
 
-static void release_actor_pages(struct page **page, int pages, int error)
+static int squashfs_read_cache(struct page *target_page, u64 block, int bsize,
+	int pages, struct page **page, int bytes);
+
+/* Read separately compressed datablock directly into page cache */
+int squashfs_readpage_block(struct page *target_page, u64 block, int bsize,
+	int expected)
+
 {
 	int i;
 
@@ -91,28 +97,95 @@ static struct squashfs_page_actor *actor_from_page_cache(
 		}
 	}
 
-	actor = squashfs_page_actor_init(page, actor_pages, 0,
-			release_actor_pages);
-	if (!actor) {
-		release_actor_pages(page, actor_pages, -ENOMEM);
-		kfree(page);
-		return NULL;
+
+	if (missing_pages) {
+		/*
+		 * Couldn't get one or more pages, this page has either
+		 * been VM reclaimed, but others are still in the page cache
+		 * and uptodate, or we're racing with another thread in
+		 * squashfs_readpage also trying to grab them.  Fall back to
+		 * using an intermediate buffer.
+		 */
+		res = squashfs_read_cache(target_page, block, bsize, pages,
+							page, expected);
+		if (res < 0)
+			goto mark_errored;
+
+		goto out;
 	}
-	return actor;
+
+	/* Decompress directly into the page cache buffers */
+	res = squashfs_read_data(inode->i_sb, block, bsize, NULL, actor);
+	if (res < 0)
+		goto mark_errored;
+
+	if (res != expected) {
+		res = -EIO;
+		goto mark_errored;
+	}
+
+	/* Last page may have trailing bytes not filled */
+	bytes = res % PAGE_SIZE;
+	if (bytes) {
+		pageaddr = kmap_atomic(page[pages - 1]);
+		memset(pageaddr + bytes, 0, PAGE_SIZE - bytes);
+		kunmap_atomic(pageaddr);
+	}
+
+	/* Mark pages as uptodate, unlock and release */
+	for (i = 0; i < pages; i++) {
+		flush_dcache_page(page[i]);
+		SetPageUptodate(page[i]);
+		unlock_page(page[i]);
+		if (page[i] != target_page)
+			put_page(page[i]);
+	}
+
+	kfree(actor);
+	kfree(page);
+
+	return 0;
+
+mark_errored:
+	/* Decompression failed, mark pages as errored.  Target_page is
+	 * dealt with by the caller
+	 */
+	for (i = 0; i < pages; i++) {
+		if (page[i] == NULL || page[i] == target_page)
+			continue;
+		flush_dcache_page(page[i]);
+		SetPageError(page[i]);
+		unlock_page(page[i]);
+		put_page(page[i]);
+	}
+
+out:
+	kfree(actor);
+	kfree(page);
+	return res;
 }
 
 int squashfs_readpages_block(struct page *target_page,
-			     struct list_head *readahead_pages,
-			     unsigned int *nr_pages,
-			     struct address_space *mapping,
-			     int page_index, u64 block, int bsize)
-
+                             struct list_head *readahead_pages,
+                             unsigned int *nr_pages,
+                             struct address_space *mapping,
+                             int page_index, u64 block, int bsize)
 {
-	struct squashfs_page_actor *actor;
-	struct inode *inode = mapping->host;
-	struct squashfs_sb_info *msblk = inode->i_sb->s_fs_info;
-	int start_index, end_index, file_end, actor_pages, res;
-	int mask = (1 << (msblk->block_log - PAGE_SHIFT)) - 1;
+        struct squashfs_page_actor *actor;
+        struct inode *inode = mapping->host;
+        struct squashfs_sb_info *msblk = inode->i_sb->s_fs_info;
+        int start_index, end_index, file_end, actor_pages, res;
+        int mask = (1 << (msblk->block_log - PAGE_SHIFT)) - 1;
+}
+
+static int squashfs_read_cache(struct page *target_page, u64 block, int bsize,
+        int pages, struct page **page, int bytes)
+{
+        struct inode *i = target_page->mapping->host;
+        struct squashfs_cache_entry *buffer =
+                squashfs_get_datablock(i->i_sb, block, bsize);
+        int res = buffer->error, n, offset = 0;
+}
 
 	/*
 	 * If readpage() is called on an uncompressed datablock, we can just
@@ -150,7 +223,15 @@ int squashfs_readpages_block(struct page *target_page,
 	if (!actor)
 		return -ENOMEM;
 
-	res = squashfs_read_data_async(inode->i_sb, block, bsize, NULL,
-				       actor);
-	return res < 0 ? res : 0;
+if (page[n] == NULL)
+        continue;
+
+squashfs_fill_page(page[n], buffer, offset, avail);
+unlock_page(page[n]);
+if (page[n] != target_page)
+        put_page(page[n]);
+
+out:
+squashfs_cache_put(buffer);
+return res;
 }
