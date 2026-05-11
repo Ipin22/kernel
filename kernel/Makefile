@@ -2,6 +2,13 @@
 # Makefile for the linux kernel.
 #
 
+subdir-ccflags-y += -Werror
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/mtprof
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/sched
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/mcdi/include
+
 obj-y     = fork.o exec_domain.o panic.o \
 	    cpu.o exit.o softirq.o resource.o \
 	    sysctl.o sysctl_binary.o capability.o ptrace.o user.o \
@@ -42,6 +49,11 @@ obj-y += printk/
 obj-y += irq/
 obj-y += rcu/
 obj-y += livepatch/
+
+
+#ifdef VENDOR_EDIT
+#Liujie.Xie@TECH.Kernel.Sched, 2019/05/22, add for ui first
+obj-y += oppocfs/
 
 obj-$(CONFIG_CHECKPOINT_RESTORE) += kcmp.o
 obj-$(CONFIG_FREEZER) += freezer.o
@@ -130,3 +142,8 @@ $(obj)/config_data.gz: $(KCONFIG_CONFIG) FORCE
 targets += config_data.h
 $(obj)/config_data.h: $(obj)/config_data.gz FORCE
 	$(call filechk,ikconfiggz)
+    
+#ifdef VENDOR_EDIT
+#Liang.Zhang@PSW.TECH.BOOTUP, 2018/11/16, Add for panic recovery
+#ifdef HANG_OPPO_ALL
+obj-$(CONFIG_HANG_OPPO_ALL) += op_panic_recovery.o

@@ -88,31 +88,6 @@
 		(x)->i_mode = ((x)->i_mode & S_IFMT) | 0775;\
 	} while (0)
 
-/* OVERRIDE_CRED() and REVERT_CRED()
- *	OVERRIDE_CRED()
- *		backup original task->cred
- *		and modifies task->cred->fsuid/fsgid to specified value.
- *	REVERT_CRED()
- *		restore original task->cred->fsuid/fsgid.
- * These two macro should be used in pair, and OVERRIDE_CRED() should be
- * placed at the beginning of a function, right after variable declaration.
- */
-#define OVERRIDE_CRED(sdcardfs_sbi, saved_cred, info)		\
-	do {	\
-		saved_cred = override_fsids(sdcardfs_sbi, info->data);	\
-		if (!saved_cred)	\
-			return -ENOMEM;	\
-	} while (0)
-
-#define OVERRIDE_CRED_PTR(sdcardfs_sbi, saved_cred, info)	\
-	do {	\
-		saved_cred = override_fsids(sdcardfs_sbi, info->data);	\
-		if (!saved_cred)	\
-			return ERR_PTR(-ENOMEM);	\
-	} while (0)
-
-#define REVERT_CRED(saved_cred)	revert_fsids(saved_cred)
-
 /* Android 5.0 support */
 
 /* Permission mode for a specific node. Controls how file permissions
@@ -139,6 +114,11 @@ typedef enum {
 	PERM_ANDROID_PACKAGE,
 	/* This node is "/Android/[data|media|obb]/[package]/cache" */
 	PERM_ANDROID_PACKAGE_CACHE,
+#ifdef VENDOR_EDIT
+//Jiemin.Zhu@PSW.Android.SdardFs, 2017/12/12, Add for sdcardfs delete dcim record
+	/* This node is "/DCIM" */
+	PERM_DCIM,
+#endif /* VENDOR_EDIT */
 } perm_t;
 
 struct sdcardfs_sb_info;
@@ -192,6 +172,13 @@ struct sdcardfs_inode_data {
 	bool under_android;
 	bool under_cache;
 	bool under_obb;
+#ifdef VENDOR_EDIT
+//Jiemin.Zhu@PSW.Android.SdardFs, 2017/12/12, Add for sdcardfs delete dcim record
+//Jiemin.Zhu@PSW.Android.SdardFs, 2017/12/12, Add for sdcardfs delete dcim record
+	bool under_extra;
+	bool under_dcim;
+	uid_t dcim_uid;
+#endif /* VENDOR_EDIT */
 };
 
 /* sdcardfs inode data in memory */
@@ -673,5 +660,14 @@ static inline bool qstr_case_eq(const struct qstr *q1, const struct qstr *q2)
 }
 
 #define QSTR_LITERAL(string) QSTR_INIT(string, sizeof(string)-1)
+
+#ifdef VENDOR_EDIT
+//Jiemin.Zhu@PSW.Android.SdardFs, 2017/12/12, Add for sdcardfs delete dcim record
+int dcim_delete_uevent(struct dentry *dentry);
+int dcim_delete_skip(void);
+//Jiemin.Zhu@PSW.Android.SdardFs, 2017/12/12, Add for sdcardfs delete dcim record
+void extra_delete_uevent(struct dentry *dentry);
+void sdcardfs_rename_record(struct dentry *old_dentry, struct dentry *new_dentry);
+#endif /* VENDOR_EDIT */
 
 #endif	/* not _SDCARDFS_H_ */
